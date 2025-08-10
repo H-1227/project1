@@ -40,14 +40,12 @@ SM4_SBOX = [
 
 
 def _pkcs7_padding(data: bytes) -> bytes:
-    """PKCS#7填充"""
     padding_length = 16 - (len(data) % 16)
     padding = bytes([padding_length]) * padding_length
     return data + padding
 
 
 def _pkcs7_unpadding(data: bytes) -> bytes:
-    """PKCS#7去填充"""
     if not data:
         return b""
     padding_length = data[-1]
@@ -57,31 +55,25 @@ def _pkcs7_unpadding(data: bytes) -> bytes:
 
 
 class SM4Base:
-    """SM4算法基础实现"""
 
     def __init__(self):
         pass
 
     @staticmethod
     def _left_rotate(x: int, n: int) -> int:
-        """循环左移"""
         return ((x << n) | (x >> (32 - n))) & 0xFFFFFFFF
 
     def _sbox(self, x: int) -> int:
-        """S盒替换"""
         return SM4_SBOX[x & 0xFF]
 
     def _l_transform(self, x: int) -> int:
-        """线性变换L"""
         return x ^ self._left_rotate(x, 2) ^ self._left_rotate(x, 10) ^ \
             self._left_rotate(x, 18) ^ self._left_rotate(x, 24)
 
     def _l_prime_transform(self, x: int) -> int:
-        """线性变换L' - 用于密钥扩展"""
         return x ^ self._left_rotate(x, 13) ^ self._left_rotate(x, 23)
 
     def _round_function(self, x0: int, x1: int, x2: int, x3: int, rk: int) -> int:
-        """轮函数"""
         tmp = x1 ^ x2 ^ x3 ^ rk
 
         # 四个S盒并行处理
@@ -94,7 +86,6 @@ class SM4Base:
         return x0 ^ self._l_transform((b0 << 24) | (b1 << 16) | (b2 << 8) | b3)
 
     def _key_expansion(self, key: bytes) -> List[int]:
-        """密钥扩展算法"""
         if len(key) != 16:
             raise ValueError("Key must be 16 bytes long")
 
@@ -126,7 +117,6 @@ class SM4Base:
         return rk
 
     def encrypt_block(self, plaintext: bytes, key: bytes) -> bytes:
-        """加密单个数据块(16字节)"""
         if len(plaintext) != 16 or len(key) != 16:
             raise ValueError("Plaintext and key must be 16 bytes long")
 
@@ -148,7 +138,6 @@ class SM4Base:
         return struct.pack(">IIII", *ciphertext)
 
     def decrypt_block(self, ciphertext: bytes, key: bytes) -> bytes:
-        """解密单个数据块(16字节)"""
         if len(ciphertext) != 16 or len(key) != 16:
             raise ValueError("Ciphertext and key must be 16 bytes long")
 
@@ -171,7 +160,6 @@ class SM4Base:
         return struct.pack(">IIII", *plaintext)
 
     def encrypt_ecb(self, plaintext: bytes, key: bytes) -> bytes:
-        """ECB模式加密"""
         padded = _pkcs7_padding(plaintext)
         ciphertext = b""
         for i in range(0, len(padded), 16):
@@ -180,7 +168,6 @@ class SM4Base:
         return ciphertext
 
     def decrypt_ecb(self, ciphertext: bytes, key: bytes) -> bytes:
-        """ECB模式解密"""
         if len(ciphertext) % 16 != 0:
             raise ValueError("Ciphertext length must be multiple of 16")
 
@@ -192,14 +179,12 @@ class SM4Base:
 
 
 class SM4TTable(SM4Base):
-    """使用T-table优化的SM4实现"""
-
+    # 使用T-table优化的SM4实现
     def __init__(self):
         super().__init__()
         self._init_t_tables()
 
     def _init_t_tables(self):
-        """初始化T表用于优化"""
         # 预计算T表：S盒输出 + 线性变换的结果
         self.T_enc = [0] * 256  # 加密用T表
         self.T_key = [0] * 256  # 密钥扩展用T表
@@ -212,7 +197,6 @@ class SM4TTable(SM4Base):
             self.T_key[i] = self._l_prime_transform(s << 24)
 
     def _round_function(self, x0: int, x1: int, x2: int, x3: int, rk: int) -> int:
-        """使用T-table优化的轮函数"""
         tmp = x1 ^ x2 ^ x3 ^ rk
 
         # 使用预计算的T表加速计算
@@ -224,7 +208,6 @@ class SM4TTable(SM4Base):
         return x0 ^ t
 
     def _key_expansion(self, key: bytes) -> List[int]:
-        """使用T-table优化的密钥扩展"""
         if len(key) != 16:
             raise ValueError("Key must be 16 bytes long")
 
@@ -249,14 +232,13 @@ class SM4TTable(SM4Base):
 
 
 class SM4AESNI(SM4TTable):
-    """使用AES-NI指令集优化的SM4实现"""
+    # 使用AES-NI指令集优化的SM4实现
 
     def __init__(self):
         super().__init__()
         self._check_hardware_support()
 
     def _check_hardware_support(self):
-        """检查硬件是否支持AES-NI等指令集"""
         self.aesni_supported = False
         try:
             # 尝试导入并使用支持AES-NI的库
@@ -291,14 +273,13 @@ class SM4AESNI(SM4TTable):
 
 
 class SM4GFNI(SM4AESNI):
-    """使用GFNI和VPROLD等最新指令集优化的SM4实现"""
+    # 使用GFNI和VPROLD等最新指令集优化的SM4实现
 
     def __init__(self):
         super().__init__()
         self._check_gfni_support()
 
     def _check_gfni_support(self):
-        """检查是否支持GFNI和VPROLD指令集"""
         self.gfni_supported = False
 
         try:
@@ -336,7 +317,6 @@ class SM4GFNI(SM4AESNI):
             print(f"GFNI支持检测失败: {e}，使用AES-NI优化版本")
 
     def _sbox(self, x: int) -> int:
-        """使用GFNI指令优化的S盒替换"""
         if self.gfni_supported:
             # GFNI指令可以加速S盒操作
             # 这里模拟优化效果，实际实现需要汇编级优化
@@ -344,7 +324,6 @@ class SM4GFNI(SM4AESNI):
         return super()._sbox(x)
 
     def _l_transform(self, x: int) -> int:
-        """使用VPROLD指令优化的线性变换"""
         if self.gfni_supported:
             # VPROLD指令可以加速位旋转操作
             # 这里模拟优化效果，实际实现需要汇编级优化
@@ -354,7 +333,7 @@ class SM4GFNI(SM4AESNI):
 
 
 def _gf128_mul(a: int, b: int) -> int:
-    """GF(2^128)乘法，优化版本"""
+    # GF(2^128)乘法，优化版本
     p = 0x87  # x^128 + x^7 + x^2 + x + 1
     result = 0
 
@@ -371,14 +350,13 @@ def _gf128_mul(a: int, b: int) -> int:
 
 
 def _inc_iv(iv: bytes) -> bytes:
-    """递增IV（用于计数器模式）"""
     iv_val = bytes_to_long(iv)
     iv_val += 1
     return long_to_bytes(iv_val, len(iv))
 
 
 class SM4GCM:
-    """SM4-GCM工作模式实现"""
+    # SM4-GCM工作模式实现
 
     def __init__(self, sm4_impl=SM4TTable):
         self.sm4 = sm4_impl()
@@ -386,7 +364,6 @@ class SM4GCM:
         self.tag_size = 16  # 128位标签
 
     def _ghash(self, h: bytes, data: bytes) -> bytes:
-        """GHASH函数实现"""
         if len(data) % self.block_size != 0:
             # 填充数据至块大小的倍数
             pad_length = self.block_size - (len(data) % self.block_size)
@@ -404,7 +381,6 @@ class SM4GCM:
         return long_to_bytes(y, self.block_size)
 
     def encrypt(self, key: bytes, iv: bytes, plaintext: bytes, associated_data: bytes = b'') -> Tuple[bytes, bytes]:
-        """GCM模式加密，优化版本"""
         if len(iv) != 12:
             raise ValueError("IV must be 12 bytes for GCM mode")
 
@@ -445,7 +421,6 @@ class SM4GCM:
         return ciphertext, tag[:self.tag_size]
 
     def decrypt(self, key: bytes, iv: bytes, ciphertext: bytes, tag: bytes, associated_data: bytes = b'') -> bytes:
-        """GCM模式解密，优化版本"""
         if len(iv) != 12:
             raise ValueError("IV must be 12 bytes for GCM mode")
         if len(tag) != self.tag_size:
@@ -486,14 +461,12 @@ class SM4GCM:
 
         return b''.join(plaintext)
 
-
+# 性能检测
 def benchmark(impl_class, name, data_size=10 * 1024 * 1024):
-    """性能基准测试"""
     sm4 = impl_class()
     key = os.urandom(16)
     data = os.urandom(data_size)
 
-    # 测试加密性能
     start = time.time()
     encrypted = sm4.encrypt_ecb(data, key)
     encrypt_time = time.time() - start
@@ -512,7 +485,6 @@ def benchmark(impl_class, name, data_size=10 * 1024 * 1024):
 
 
 def gcm_benchmark(impl_class, name, data_size=10 * 1024 * 1024):
-    """GCM模式性能基准测试"""
     gcm = SM4GCM(impl_class)
     key = os.urandom(16)
     iv = os.urandom(12)
@@ -538,7 +510,6 @@ def gcm_benchmark(impl_class, name, data_size=10 * 1024 * 1024):
 
 
 def main():
-    """主函数：运行测试和性能基准"""
     print("SM4算法实现与优化测试")
     print("=" * 50)
 
